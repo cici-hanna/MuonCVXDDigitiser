@@ -160,7 +160,7 @@ MuonCVXDDigitiser::MuonCVXDDigitiser() :
     registerProcessorParameter("StoreFiredPixels",
                                "Store fired pixels",
                                _produceFullPattern,
-                               int(0));
+                               int(1));
     registerProcessorParameter("EnergyLoss",
                                "Energy Loss keV/mm",
                                _energyLoss,
@@ -177,7 +177,7 @@ MuonCVXDDigitiser::MuonCVXDDigitiser() :
 }
 void MuonCVXDDigitiser::init()
 { 
-    streamlog_out(DEBUG) << "   init called  " << std::endl ;
+    std::cout << "   init called  " ;
     printParameters() ;
     // Determine if we're handling barrel or endcap geometry
     if (_subDetName.find("Barrel") != std::string::npos) {
@@ -332,6 +332,7 @@ void MuonCVXDDigitiser::LoadGeometry()
     } */
 
     PrintGeometryInfo();
+    std::cout << "Printed the geometry info!";
 
     // Bins for charge discretization
     // FIXME: Will move to assign more dynamically 
@@ -354,7 +355,9 @@ void MuonCVXDDigitiser::LoadGeometry()
 } 
 
 void MuonCVXDDigitiser::processEvent(LCEvent * evt)
-{ 
+{
+
+  std::cout << "TESTING COUT";
     //SP. few TODO items:
     // - include noisy pixels (calculate rate from gaussian with unit sigma integral x > _electronicNoise / _threshold )
     // - change logic in creating pixels from all SimTrkHits, then cluster them (incl. timing info)
@@ -399,7 +402,7 @@ void MuonCVXDDigitiser::processEvent(LCEvent * evt)
             // use CellID to set layer and ladder numbers
             _currentLayer  = cellid_decoder( simTrkHit )["layer"];
             _currentLadder = cellid_decoder( simTrkHit )["module"];
-            streamlog_out( DEBUG7 ) << "Processing simHit #" << i << ", from layer=" << _currentLayer << ", module=" << _currentLadder << std::endl;
+            streamlog_out(DEBUG6) << "Processing simHit #" << i << ", from layer=" << _currentLayer << ", module=" << _currentLadder << std::endl;
             streamlog_out (DEBUG6) << "- EDep = " << simTrkHit->getEDep() *dd4hep::GeV / dd4hep::keV << " keV, path length = " << simTrkHit->getPathLength() * 1000. << " um" << std::endl;
             float mcp_r = std::sqrt(simTrkHit->getPosition()[0]*simTrkHit->getPosition()[0]+simTrkHit->getPosition()[1]*simTrkHit->getPosition()[1]);
             float mcp_phi = std::atan(simTrkHit->getPosition()[1]/simTrkHit->getPosition()[0]);
@@ -535,13 +538,13 @@ void MuonCVXDDigitiser::processEvent(LCEvent * evt)
                 }
               }
             }
-            streamlog_out (DEBUG7) << "- number of pixels: " << recoHit->getRawHits().size() << std::endl;
+            streamlog_out (DEBUG6) << "- number of pixels: " << recoHit->getRawHits().size() << std::endl;
             streamlog_out (DEBUG7) << "- MC particle p=" << std::sqrt(simTrkHit->getMomentum()[0]*simTrkHit->getMomentum()[0]+simTrkHit->getMomentum()[1]*simTrkHit->getMomentum()[1]+simTrkHit->getMomentum()[2]*simTrkHit->getMomentum()[2]) << std::endl;
             streamlog_out (DEBUG7) << "- isSecondary = " << simTrkHit->isProducedBySecondary() << ", isOverlay = " << simTrkHit->isOverlay() << std::endl;
-            streamlog_out (DEBUG6) << "- List of constituents (pixels/strips):" << std::endl;
+            streamlog_out (DEBUG7) << "- List of constituents (pixels/strips):" << std::endl;
             for (size_t iH = 0; iH < recoHit->rawHits().size(); ++iH) {
                 SimTrackerHit *hit = dynamic_cast<SimTrackerHit*>(recoHit->rawHits().at(iH));
-                streamlog_out (DEBUG6) << "  - " << iH << ": Edep (e-) = " << hit->getEDep() << ", t (ns) =" << hit->getTime() << std::endl;
+                streamlog_out (DEBUG7) << "  - " << iH << ": Edep (e-) = " << hit->getEDep() << ", t (ns) =" << hit->getTime() << std::endl;
             }
             streamlog_out (DEBUG7) << "--------------------------------" << std::endl;
             THcol->addElement(recoHit);
@@ -551,7 +554,7 @@ void MuonCVXDDigitiser::processEvent(LCEvent * evt)
                 delete hit;
             }
         }
-        streamlog_out(DEBUG) << "Number of produced hits: " << THcol->getNumberOfElements()  << std::endl;
+        streamlog_out(DEBUG7) << "Number of produced hits: " << THcol->getNumberOfElements()  << std::endl;
         //**************************************************************************
         // Add collection to event
         //**************************************************************************    
@@ -667,14 +670,22 @@ void MuonCVXDDigitiser::ProduceIonisationPoints(SimTrackerHit *hit)
     double tanx = dir[0] / dir[2];
     double tany = dir[1] / dir[2];  
     
-    // trackLength is in mm -> limit length at 1cm
+    // trackLength is in mm -> limit length to 5 x the pitch, to get a more reasonable limit
+    
+    _maxTrkLen = 5 * _pixelSizeX;
+    
     double trackLength = std::min(_maxTrkLen,
          _layerThickness[_currentLayer] * sqrt(1.0 + pow(tanx, 2) + pow(tany, 2)));
+
+    // fixing super long tracks
+    streamlog_out(DEBUG7) << "_maxTrkLen: " << _maxTrkLen << std::endl;
+    streamlog_out(DEBUG7) << "other bit: " << _layerThickness[_currentLayer] * sqrt(1.0 + pow(tanx, 2) + pow(tany, 2)) << std::endl;
+    streamlog_out(DEBUG7) << "trackLength: " << trackLength << std::endl;
   
     _numberOfSegments = ceil(trackLength / _segmentLength );
     double dEmean = (dd4hep::keV * _energyLoss * trackLength) / ((double)_numberOfSegments);
     _ionisationPoints.resize(_numberOfSegments);
-    streamlog_out( DEBUG6 ) <<  "Track path length: " << trackLength << ", calculated dEmean * N_segment = " << dEmean << " * " << _numberOfSegments << " = " << dEmean*_numberOfSegments << std::endl;
+    streamlog_out(DEBUG7) <<  "Track path length: " << trackLength << ", calculated dEmean * N_segment = " << dEmean << " * " << _numberOfSegments << " = " << dEmean*_numberOfSegments << std::endl;
     _eSum = 0.0;
     // TODO _segmentLength may be different from segmentLength, is it ok?
     double segmentLength = trackLength / ((double)_numberOfSegments);
