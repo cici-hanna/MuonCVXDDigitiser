@@ -173,7 +173,7 @@ MuonCVXDDigitiser::MuonCVXDDigitiser() :
     registerProcessorParameter("MaxTrackLength",
                                "Maximum values for track length (in mm)",
                                _maxTrkLen,
-                               10.0); 
+                               0.6); 
 }
 void MuonCVXDDigitiser::init()
 { 
@@ -402,7 +402,7 @@ void MuonCVXDDigitiser::processEvent(LCEvent * evt)
             // use CellID to set layer and ladder numbers
             _currentLayer  = cellid_decoder( simTrkHit )["layer"];
             _currentLadder = cellid_decoder( simTrkHit )["module"];
-            streamlog_out(DEBUG6) << "Processing simHit #" << i << ", from layer=" << _currentLayer << ", module=" << _currentLadder << std::endl;
+            streamlog_out(WARNING) << "Processing simHit #" << i << ", from layer=" << _currentLayer << ", module=" << _currentLadder << std::endl;
             streamlog_out (DEBUG6) << "- EDep = " << simTrkHit->getEDep() *dd4hep::GeV / dd4hep::keV << " keV, path length = " << simTrkHit->getPathLength() * 1000. << " um" << std::endl;
             float mcp_r = std::sqrt(simTrkHit->getPosition()[0]*simTrkHit->getPosition()[0]+simTrkHit->getPosition()[1]*simTrkHit->getPosition()[1]);
             float mcp_phi = std::atan(simTrkHit->getPosition()[1]/simTrkHit->getPosition()[0]);
@@ -496,13 +496,13 @@ void MuonCVXDDigitiser::processEvent(LCEvent * evt)
             rel->setTo (simTrkHit);
             rel->setWeight( 1.0 );
             relCol->addElement(rel);
-            streamlog_out (DEBUG7) << "Reconstructed pixel cluster:" << std::endl;
+            streamlog_out (WARNING) << "Reconstructed pixel cluster:" << std::endl;
             streamlog_out (DEBUG7) << "- local position (x,y) = " << localPos[0] << "(Idx: " << localIdx[0] << "), " << localPos[1] << "(Idy: " << localIdx[1] << ")" << std::endl;
             streamlog_out( DEBUG5 ) << "(reco local) - (true local) (x,y,z): " << localPos[0] - _currentLocalPosition[0] << ", " << localPos[1] - _currentLocalPosition[1] << ", " << localPos[2] - _currentLocalPosition[2] << std::endl;
             streamlog_out (DEBUG7) << "- global position (x,y,z, t) = " << recoHit->getPosition()[0] << ", " << recoHit->getPosition()[1] << ", " << recoHit->getPosition()[2] << ", " << recoHit->getTime() << std::endl;
             streamlog_out (DEBUG7) << "- (reco global (x,y,z,t)) - (true global) = " << recoHit->getPosition()[0] - simTrkHit->getPosition()[0]<< ", " << recoHit->getPosition()[1] - simTrkHit->getPosition()[1] << ", " << recoHit->getPosition()[2] - simTrkHit->getPosition()[2]<< ", " << recoHit->getTime() - simTrkHit->getTime()<< std::endl;
             streamlog_out (DEBUG7) << "- charge = " << recoHit->getEDep() << "(True: " << simTrkHit->getEDep() << ")"  << std::endl;
-            streamlog_out (DEBUG7) << "- incidence angles: theta = " << incidentTheta << ", phi = " << incidentPhi << std::endl;
+            streamlog_out (WARNING) << "- incidence angles: theta = " << incidentTheta << ", phi = " << incidentPhi << std::endl;
             if (_produceFullPattern != 0)
             {
               // Store all the fired points
@@ -538,7 +538,8 @@ void MuonCVXDDigitiser::processEvent(LCEvent * evt)
                 }
               }
             }
-            streamlog_out (DEBUG6) << "- number of pixels: " << recoHit->getRawHits().size() << std::endl;
+            streamlog_out (WARNING) << "- number of pixels: " << recoHit->getRawHits().size() << std::endl;
+	    streamlog_out (WARNING) << std::endl;
             streamlog_out (DEBUG7) << "- MC particle p=" << std::sqrt(simTrkHit->getMomentum()[0]*simTrkHit->getMomentum()[0]+simTrkHit->getMomentum()[1]*simTrkHit->getMomentum()[1]+simTrkHit->getMomentum()[2]*simTrkHit->getMomentum()[2]) << std::endl;
             streamlog_out (DEBUG7) << "- isSecondary = " << simTrkHit->isProducedBySecondary() << ", isOverlay = " << simTrkHit->isOverlay() << std::endl;
             streamlog_out (DEBUG7) << "- List of constituents (pixels/strips):" << std::endl;
@@ -596,7 +597,7 @@ void MuonCVXDDigitiser::FindLocalPosition(SimTrackerHit *hit,
 {
     // Use SurfaceManager to calculate local coordinates
     const int cellID0 = hit->getCellID0() ;
-    streamlog_out( DEBUG3 ) << "Cell ID of Sim Hit: " << cellID0 << std::endl;
+    streamlog_out( DEBUG3 ) << "Cell ID of Sim Hit: " << cellID0 << std::endl;  
     SurfaceMap::const_iterator sI = _map->find( cellID0 ) ;
     const dd4hep::rec::ISurface* surf = sI->second ;
     Vector3D oldPos( hit->getPosition()[0], hit->getPosition()[1], hit->getPosition()[2] );
@@ -650,6 +651,7 @@ void MuonCVXDDigitiser::ProduceIonisationPoints(SimTrackerHit *hit)
     double entry[3];
     double exit[3];
     // hit and pos are in mm
+    
     FindLocalPosition(hit, pos, dir);
     if ( _currentLayer == -1)
       return;
@@ -657,30 +659,50 @@ void MuonCVXDDigitiser::ProduceIonisationPoints(SimTrackerHit *hit)
     entry[2] = -_layerHalfThickness[_currentLayer]; 
     exit[2] = _layerHalfThickness[_currentLayer];
     // entry points: hit position is in middle of layer. ex: entry_x = x - (z distance to bottom of layer) * px/pz
-    for (int i = 0; i < 2; ++i) {
-        entry[i] = pos[i] + dir[i] * (entry[2] - pos[2]) / dir[2];
-        exit[i]= pos[i] + dir[i] * (exit[2] - pos[2]) / dir[2];
-    }
+
+
+    double tanx = dir[0] / dir[2];
+    double tany = dir[1] / dir[2];
+    
+    // for (int i = 0; i < 2; ++i) {
+    //     entry[i] = pos[i] + dir[i] * (entry[2] - pos[2]) / dir[2];
+    //     exit[i]= pos[i] + dir[i] * (exit[2] - pos[2]) / dir[2];
+    // }
+
+    entry[0] = pos[0] + sqrt( (pow(hit->getPathLength()/2,2) - pow(entry[2],2) )/(1 + pow(tany/tanx, 2)) );
+    entry[1] = pos[1] + sqrt( (pow(hit->getPathLength()/2,2) - pow(entry[2],2) )/(1 + pow(tanx/tany, 2)) );
+
+    exit[0] = pos[0] - sqrt( (pow(hit->getPathLength()/2,2) - pow(exit[2],2) )/(1 + pow(tany/tanx, 2)) );
+    exit[1] = pos[1] - sqrt( (pow(hit->getPathLength()/2,2) - pow(exit[2],2) )/(1 + pow(tanx/tany, 2)) );
+
+    streamlog_out(WARNING) << "entry[0]: " << entry[0] << ", entry[1]: " << entry[1] << std::endl;
+    streamlog_out(WARNING) << "exit[0]: " << exit[0] << ", exit[1]: " << exit[1] << std::endl;
+    
     for (int i = 0; i < 3; ++i) {
         _currentLocalPosition[i] = pos[i];
         _currentEntryPoint[i] = entry[i];
         _currentExitPoint[i] = exit[i];
     }
     streamlog_out( DEBUG5 ) << "local position: " << _currentLocalPosition[0] << ", " << _currentLocalPosition[1] << ", " << _currentLocalPosition[2] << std::endl;
-    double tanx = dir[0] / dir[2];
-    double tany = dir[1] / dir[2];  
+
+  
+
+    streamlog_out(WARNING) << "tanx: " << tanx << std::endl;
+    streamlog_out(WARNING) << "tany: " << tany << std::endl;
+
     
-    // trackLength is in mm -> limit length to 5 x the pitch, to get a more reasonable limit
-    
-    _maxTrkLen = 5 * _pixelSizeX;
+    // trackLength is in mm -> limit length to 600um
     
     double trackLength = std::min(_maxTrkLen,
-         _layerThickness[_currentLayer] * sqrt(1.0 + pow(tanx, 2) + pow(tany, 2)));
+				  sqrt( pow (exit[0]-entry[0],2) + pow (exit[1] - entry[1],2) + pow (exit[2]-entry[2],2) ));
+         // _layerThickness[_currentLayer] * sqrt(1.0 + pow(tanx, 2) + pow(tany, 2)));
 
-    // fixing super long tracks
-    streamlog_out(DEBUG7) << "_maxTrkLen: " << _maxTrkLen << std::endl;
-    streamlog_out(DEBUG7) << "other bit: " << _layerThickness[_currentLayer] * sqrt(1.0 + pow(tanx, 2) + pow(tany, 2)) << std::endl;
-    streamlog_out(DEBUG7) << "trackLength: " << trackLength << std::endl;
+    // // fixing super long tracks
+    streamlog_out( WARNING ) << "geant4 path length: " << hit->getPathLength() << std::endl;
+    streamlog_out( WARNING ) << "ionization points trackLength: " << trackLength << std::endl;
+    streamlog_out( WARNING ) << "difference: " << trackLength - hit->getPathLength() << std::endl;
+    streamlog_out( WARNING ) << "percent difference: " << (trackLength - hit->getPathLength())/(hit->getPathLength()) * 100 << "%" << std::endl;
+    streamlog_out( WARNING ) << std::endl;
   
     _numberOfSegments = ceil(trackLength / _segmentLength );
     double dEmean = (dd4hep::keV * _energyLoss * trackLength) / ((double)_numberOfSegments);
